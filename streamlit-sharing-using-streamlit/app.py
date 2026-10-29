@@ -3,13 +3,14 @@ import joblib
 import numpy as np
 import pandas as pd
 import os
-EDUCATION_LEVELS = ["Primary", "Secondary", "Certificate", "Bachelors", "Masters", "Doctorate"]
+EDUCATION_LEVELS = ["Primary", "Secondary", "Certificate", "Diploma", "Bachelors", "Masters", "Doctorate"]
 
 # The saved models only know these 4 categories, so map the 6 UI levels onto them
 EDUCATION_TO_MODEL = {
     "Primary": "Primary",
     "Secondary": "Secondary",
     "Certificate": "Certificate",
+    "Diploma": "Diploma",
     "Bachelors": "Bachelors",
     "Masters": "Masters",
     "Doctorate": "Doctorate",
@@ -73,7 +74,21 @@ with tab_regression:
         # These four categories are the exact set the pipeline's
         # OrdinalEncoder was fitted on.
         owner_education_level = st.selectbox(
+
+            "Owner Education Level",
+            options=[
+                "Primary",
+                "Secondary",
+                "Certificate",
+                "Bachelors",
+                "Masters",
+                "Doctorate"
+            ],
+            index=1
+        )
+
             "Owner Education Level", EDUCATION_LEVELS, index=1)
+
         monthly_marketing_spend_kes = st.number_input("Monthly Marketing Spend (KES)", value=45000)
         avg_daily_foot_traffic = st.number_input(
             "Avg Daily Foot Traffic (leave 0 if not applicable)", value=0)
