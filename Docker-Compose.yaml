@@ -13,14 +13,14 @@
 services:
   flask-gunicorn-app:
     image: servingmlmodels-flask-gunicorn-app
-    # "expose" makes port 8000 reachable by OTHER CONTAINERS on the same
+    # "expose" makes port 5000 reachable by OTHER CONTAINERS on the same
     # Docker network (specifically, nginx) -- it does NOT publish the port
     # to your host machine. That is intentional: the only supported way to
     # reach the Flask app from your browser is through nginx (see
-    # nginx.conf), never by calling port 8000 or a host-published port
+    # nginx.conf), never by calling port 5000 or a host-published port
     # directly.
     expose:
-      - "8000"
+      - "5000"
 
   nginx:
     image: servingmlmodels-nginx

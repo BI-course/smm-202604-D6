@@ -54,9 +54,9 @@ COPY --from=builder /install /usr/local
 # Copy application code (and the model/ folder copied there in Stage 1)
 COPY --from=builder /build /opt/app-smm
 
-EXPOSE 8000
+EXPOSE 5000
 
 # 5 Gunicorn worker processes -- a fixed, reasonable default for a small
 # lab container. In a real deployment this is normally sized from the
 # machine's CPU count, e.g. (2 x number_of_cores) + 1.
-CMD ["gunicorn", "--chdir", "/opt/app-smm", "-w", "5", "-b", "0.0.0.0:8000", "api:app"]
+CMD ["gunicorn", "--chdir", "/opt/app-smm", "-w", "5", "-b", "0.0.0.0:5000", "api:app"]
