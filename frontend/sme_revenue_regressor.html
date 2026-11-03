@@ -106,6 +106,12 @@
   #result.ok { background: var(--ok-bg); color: var(--accent-dark); }
   #result.err { background: var(--err-bg); color: var(--err-text); }
   #result .figure { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+  /* --- client-side validation styles --- */
+  .invalid { border-color: #b91c1c !important; }
+  .field-error { color: #b91c1c; font-size: 12px; margin-top: 4px; }
+  #errorBanner { display: none; background: #fef2f2; color: #b91c1c; padding: 10px 14px; border-radius: 10px; margin-top: 16px; font-size: 14px; }
+  #errorBanner.show { display: block; }
 </style>
 </head>
 <body>
@@ -115,7 +121,7 @@
     <h1>SME Monthly Revenue Predictor</h1>
     <p class="lead">Calls <code>POST /api/v1/models/sme-revenue-regressor/predictions</code></p>
 
-    <form id="predictForm">
+    <form id="predictForm" novalidate>
       <div class="row">
         <div>
           <label for="sector">Sector</label>
@@ -156,7 +162,7 @@
             <option>Certificate</option>
             <option>Diploma</option>
             <option>Bachelor's</option>
-            <option>Master's</option>
+            <option>Masters</option>
             <option>Doctorate</option>
           </select>
         </div>
@@ -217,19 +223,22 @@
         </div>
       </div>
 
+      <div id="errorBanner"></div>
       <button type="submit" id="submitBtn">Predict Monthly Revenue</button>
     </form>
 
     <div id="result"></div>
   </div>
 
+<script src="config.js"></script>
+<script src="validation.js"></script>
 <script>
 
   const protocol = window.location.protocol;                 // "http:", "https:", or "file:"
   const hostname = window.location.hostname || "127.0.0.1";  // hostname is "" for a file:// page
   const isSecure = protocol === "https:";
 
-  const API_ORIGIN = `${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`;
+  const API_ORIGIN = FormValidation.apiOrigin(`${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`);
   const API_URL = `${API_ORIGIN}/api/v1/models/sme-revenue-regressor/predictions`;
 
   // const API_URL = "http://127.0.0.1:5000/api/v1/models/sme-revenue-regressor/predictions";
@@ -239,27 +248,25 @@
     const submitBtn = document.getElementById("submitBtn");
     const result = document.getElementById("result");
 
-    // A blank foot-traffic field means "not applicable" (e.g. a Technology
-    // business) -- send null rather than an empty string, exactly what the
-    // pipeline's own imputer already knows how to handle.
-    const footTraffic = document.getElementById("avg_daily_foot_traffic").value;
-
-    const payload = {
-      sector: document.getElementById("sector").value,
-      county: document.getElementById("county").value,
-      quarter: document.getElementById("quarter").value,
-      owner_education_level: document.getElementById("owner_education_level").value,
-      business_age_years: parseFloat(document.getElementById("business_age_years").value),
-      num_employees: parseInt(document.getElementById("num_employees").value),
-      monthly_marketing_spend_kes: parseFloat(document.getElementById("monthly_marketing_spend_kes").value),
-      avg_daily_foot_traffic: footTraffic === "" ? null : parseFloat(footTraffic),
-      online_presence_score: parseFloat(document.getElementById("online_presence_score").value),
-      loan_amount_kes: parseFloat(document.getElementById("loan_amount_kes").value),
-      interest_rate_pct: parseFloat(document.getElementById("interest_rate_pct").value),
-      inflation_rate_pct: parseFloat(document.getElementById("inflation_rate_pct").value),
-      competitor_density: parseInt(document.getElementById("competitor_density").value),
-      customer_satisfaction_score: parseFloat(document.getElementById("customer_satisfaction_score").value),
-    };
+    const v = FormValidation.validateForm(e.target, {
+      sector: { label: "Sector", type: "select" },
+      county: { label: "County", type: "select" },
+      quarter: { label: "Quarter", type: "select" },
+      owner_education_level: { label: "Owner education", type: "select" },
+      business_age_years: { label: "Business age", type: "float", min: 0, max: 100 },
+      num_employees: { label: "Number of employees", type: "int", min: 0 },
+      monthly_marketing_spend_kes: { label: "Marketing spend", type: "float", min: 0 },
+      avg_daily_foot_traffic: { label: "Foot traffic", type: "float", min: 0, required: false },
+      online_presence_score: { label: "Online presence score", type: "float", min: 0, max: 100 },
+      loan_amount_kes: { label: "Loan amount", type: "float", min: 0 },
+      interest_rate_pct: { label: "Interest rate", type: "float", min: 0, max: 100 },
+      inflation_rate_pct: { label: "Inflation rate", type: "float", min: 0, max: 100 },
+      competitor_density: { label: "Competitor density", type: "int", min: 0 },
+      customer_satisfaction_score: { label: "Satisfaction score", type: "float", min: 1, max: 5 },
+    });
+    if (!v) return;          // errors are showing, so nothing is sent
+    // Blank foot traffic becomes null (the model's imputer handles it)
+    const payload = v;
 
     submitBtn.disabled = true;
     submitBtn.textContent = "Predicting...";
@@ -270,10 +277,14 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(90000),
       });
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Server responded ${response.status}: ${text.slice(0, 200)}`);
+        let detail = "";
+        try { detail = (await response.json()).error || ""; } catch (_) {}
+        throw new Error(detail
+          ? `Server rejected the request (${response.status}): ${detail}`
+          : `Server responded with status ${response.status}`);
       }
       const data = await response.json();
       result.className = "show ok";
@@ -282,8 +293,7 @@
         `<div class="figure">KES ${Number(data.predicted_monthly_revenue_kes).toLocaleString()}</div>`;
     } catch (err) {
       result.className = "show err";
-      result.textContent = "Request failed: " + err.message +
-        " (is api.py running on http://127.0.0.1:5000 ?)";
+      result.textContent = FormValidation.describeError(err);
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Predict Monthly Revenue";

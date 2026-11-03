@@ -1,0 +1,1 @@
+window.API_BASE_URL = "https://smm-202604-d6-x17t.onrender.com/";
