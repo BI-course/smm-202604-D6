@@ -1,218 +1,232 @@
-import streamlit as st
+import os
+
 import joblib
 import numpy as np
 import pandas as pd
-import os
-EDUCATION_LEVELS = ["Primary", "Secondary", "Certificate", "Diploma", "Bachelors", "Masters", "Doctorate"]
+import streamlit as st
 
-# The saved models only know these 4 categories, so map the 6 UI levels onto them
-EDUCATION_TO_MODEL = {
-    "Primary": "Primary",
-    "Secondary": "Secondary",
-    "Certificate": "Certificate",
-    "Diploma": "Diploma",
-    "Bachelors": "Bachelors",
-    "Masters": "Masters",
-    "Doctorate": "Doctorate",
-}
+st.set_page_config(page_title="BBT 4206 Model Validation Demos", layout="wide")
+
 # -----------------------------------------------------------------------
-# Load all four persisted artifacts ONCE, at module import time. Streamlit
-# re-runs this whole script top-to-bottom on every widget interaction, so
-# @st.cache_resource keeps joblib.load() from re-reading the files from
-# disk on every single click -- without it, every tab switch and every
-# form submission would reload all four artifacts again.
+# Locate the model folder: ./model, ../model (repo layout), or next to app.py
 # -----------------------------------------------------------------------
+HERE = os.path.dirname(os.path.abspath(__file__))
+REG_FILE = "lasso_regressor_for_sme_revenue.joblib"
+MODEL_DIR = next(
+    p for p in (os.path.join(HERE, "model"), os.path.join(HERE, "..", "model"), HERE)
+    if os.path.exists(os.path.join(p, REG_FILE))
+)
+
+
 @st.cache_resource
-def load_artifacts():
-    # regression_pipeline = joblib.load("lasso_regressor_for_sme_revenue.joblib")
-    # classification_pipeline = joblib.load("svc_classifier_for_sme_credit_risk.joblib")
-    # clustering_artifact = joblib.load("kmeans_mall_customer_segmentation.joblib")
-    # arm_artifact = joblib.load("apriori_recommendation_rules.joblib")
-    MODEL_DIR = "./model"
+def load_models():
+    """Load all four artifacts once and reuse them across reruns and sessions."""
+    load = lambda name: joblib.load(os.path.join(MODEL_DIR, name))
+    clustering = load("kmeans_mall_customer_segmentation.joblib")
+    arm = load("apriori_recommendation_rules.joblib")
+    return {
+        "reg": load(REG_FILE),
+        "clf": load("svc_classifier_for_sme_credit_risk.joblib"),
+        "scaler": clustering["scaler"],
+        "kmeans": clustering["kmeans"],
+        "reco": arm["recommendation_lookup"],
+        "sku": arm["sku_lookup"],
+    }
 
-    regression_pipeline = joblib.load(
-        os.path.join(MODEL_DIR, "lasso_regressor_for_sme_revenue.joblib")
-    )
 
-    classification_pipeline = joblib.load(
-        os.path.join(MODEL_DIR, "svc_classifier_for_sme_credit_risk.joblib")
-    )
+M = load_models()
 
-    clustering_artifact = joblib.load(
-        os.path.join(MODEL_DIR, "kmeans_mall_customer_segmentation.joblib")
-    )
+# Categories exactly as the pipelines' encoders were fitted
+SECTORS = ["Agriculture", "Hospitality", "Manufacturing", "Retail", "Services", "Technology"]
+COUNTIES = ["Eldoret", "Kisumu", "Mombasa", "Nairobi", "Nakuru", "Other"]
+QUARTERS = ["Q1", "Q2", "Q3", "Q4"]
+EDUCATION = ["Primary", "Secondary", "Certificate", "Diploma", "Bachelors", "Masters", "Doctorate"]
+LOAN_PURPOSES = ["Business Expansion", "Equipment Purchase", "Inventory Financing", "Working Capital"]
 
-    arm_artifact = joblib.load(
-        os.path.join(MODEL_DIR, "apriori_recommendation_rules.joblib")
-    )
-    return regression_pipeline, classification_pipeline, clustering_artifact, arm_artifact
 
-regression_pipeline, classification_pipeline, clustering_artifact, arm_artifact = load_artifacts()
-clustering_scaler = clustering_artifact["scaler"]
-clustering_kmeans = clustering_artifact["kmeans"]
-recommendation_lookup = arm_artifact["recommendation_lookup"]
-sku_lookup = arm_artifact["sku_lookup"]
+def select(label, options, default, key):
+    return st.selectbox(label, options, index=options.index(default), key=key)
 
-st.set_page_config(page_title="BBT 4206 Model Validation Demos", page_icon="\U0001F4CA", layout="centered")
+
+def num(label, value, key, step=None):
+    return st.number_input(label, value=value, step=step, key=key)
+
+
 st.title("BBT 4206 -- Model Validation Demos")
-
-tab_regression, tab_classification, tab_clustering, tab_arm = st.tabs([
-    "SME Revenue Regressor", "SME Credit Risk Classifier",
-    "Mall Customer Segmenter", "E-commerce Recommender",
+st.caption("Switch tabs to try a different model.")
+tab_reg, tab_clf, tab_clu, tab_rec = st.tabs([
+    "SME Revenue Regressor",
+    "SME Credit Risk Classifier",
+    "Mall Customer Segmenter",
+    "E-commerce Recommender",
 ])
 
 # -----------------------------------------------------------------------
-# 1. Regression
+# 1. Regression: monthly revenue (KES)
 # -----------------------------------------------------------------------
-with tab_regression:
-    with st.form("regression_form"):
-        sector = st.text_input("Sector", "Technology")
-        county = st.text_input("County", "Nairobi")
-        quarter = st.text_input("Quarter", "Q3")
-        business_age_years = st.number_input("Business Age (years)", value=4.5)
-        num_employees = st.number_input("Number of Employees", value=12)
-        # These four categories are the exact set the pipeline's
-        # OrdinalEncoder was fitted on.
-        owner_education_level = st.selectbox(
+with tab_reg:
+    c1, c2 = st.columns(2)
+    with c1:
+        sector = select("Sector", SECTORS, "Technology", "reg_sector")
+        county = select("County", COUNTIES, "Nairobi", "reg_county")
+        quarter = select("Quarter", QUARTERS, "Q3", "reg_quarter")
+        education = select("Owner Education Level", EDUCATION, "Diploma", "reg_edu")
+        age = num("Business Age (years)", 4.5, "reg_age")
+        employees = num("Number of Employees", 12, "reg_emp", step=1)
+    with c2:
+        marketing = num("Monthly Marketing Spend (KES)", 45000.0, "reg_mkt")
+        foot = num("Avg Daily Foot Traffic (0 if not applicable)", 0.0, "reg_foot")
+        online = num("Online Presence Score", 78.0, "reg_online")
+        interest = num("Interest Rate (%)", 14.5, "reg_int")
+        competitors = num("Competitor Density", 5, "reg_comp", step=1)
+        satisfaction = num("Customer Satisfaction Score", 4.2, "reg_sat")
 
-            "Owner Education Level",
-            options=[
-                "Primary",
-                "Secondary",
-                "Certificate",
-                "Bachelors",
-                "Masters",
-                "Doctorate"
-            ],
-            index=1
-        )
-
-            "Owner Education Level", EDUCATION_LEVELS, index=1)
-
-        monthly_marketing_spend_kes = st.number_input("Monthly Marketing Spend (KES)", value=45000)
-        avg_daily_foot_traffic = st.number_input(
-            "Avg Daily Foot Traffic (leave 0 if not applicable)", value=0)
-        online_presence_score = st.number_input("Online Presence Score", value=78.0)
-        loan_amount_kes = st.number_input("Loan Amount (KES)", value=250000)
-        interest_rate_pct = st.number_input("Interest Rate (%)", value=14.5)
-        inflation_rate_pct = st.number_input("Inflation Rate (%)", value=6.5)
-        competitor_density = st.number_input("Competitor Density", value=5)
-        customer_satisfaction_score = st.number_input("Customer Satisfaction Score", value=4.2)
-        submitted = st.form_submit_button("Predict Revenue")
-
-    if submitted:
-        payload = {
-            "sector": sector, "county": county, "quarter": quarter,
-            "business_age_years": business_age_years, "num_employees": num_employees,
-            "owner_education_level": EDUCATION_TO_MODEL[owner_education_level],
-            "monthly_marketing_spend_kes": monthly_marketing_spend_kes,
-            "avg_daily_foot_traffic": avg_daily_foot_traffic or None,
-            "online_presence_score": online_presence_score,
-            "loan_amount_kes": loan_amount_kes, "interest_rate_pct": interest_rate_pct,
-            "inflation_rate_pct": inflation_rate_pct,
-            "competitor_density": competitor_density,
-            "customer_satisfaction_score": customer_satisfaction_score,
-        }
-        input_row = pd.DataFrame([payload])
-        predicted_log_revenue = regression_pipeline.predict(input_row)[0]
-        predicted_revenue_kes = float(np.expm1(predicted_log_revenue))
-        st.success(f"Predicted monthly revenue: KES {predicted_revenue_kes:,.2f}")
+    if st.button("Predict revenue", key="reg_btn", type="primary"):
+        try:
+            row = pd.DataFrame([{
+                "business_age_years": age,
+                "monthly_marketing_spend_kes": marketing,
+                "customer_satisfaction_score": satisfaction,
+                "num_employees": employees,
+                "online_presence_score": online,
+                "competitor_density": competitors,
+                # 0 means "not applicable" (e.g. online-only business)
+                "avg_daily_foot_traffic": foot if foot else np.nan,
+                "interest_rate_pct": interest,
+                "sector": sector,
+                "county": county,
+                "quarter": quarter,
+                "owner_education_level": education,
+            }])
+            # Model was trained on log1p(revenue); invert to report KES
+            revenue = float(np.expm1(M["reg"].predict(row)[0]))
+            st.success(f"KES {revenue:,.2f} / month")
+        except Exception as e:
+            st.error(f"Inference error: {e}")
 
 # -----------------------------------------------------------------------
-# 2. Classification
+# 2. Classification: credit risk category
 # -----------------------------------------------------------------------
-with tab_classification:
-    with st.form("classification_form"):
-        sector2 = st.text_input("Sector", "Retail")
-        county2 = st.text_input("County", "Nairobi")
-        quarter2 = st.text_input("Quarter", "Q2")
-        loan_purpose = st.text_input("Loan Purpose", "Working Capital")
-        owner_education_level2 = st.selectbox(
-            "Owner Education Level", EDUCATION_LEVELS, index=1, key="oel2")
-        business_age_years2 = st.number_input("Business Age (years)", value=2.1, key="bay2")
-        num_employees2 = st.number_input("Number of Employees", value=4, key="ne2")
-        monthly_revenue_kes = st.number_input("Monthly Revenue (KES)", value=850000)
-        loan_amount_kes2 = st.number_input("Loan Amount (KES)", value=150000, key="lak2")
-        loan_term_months = st.number_input("Loan Term (months)", value=12)
-        interest_rate_pct2 = st.number_input("Interest Rate (%)", value=16.5, key="irp2")
-        collateral_value_kes = st.number_input("Collateral Value (leave 0 if unsecured)", value=0)
-        debt_to_income_ratio = st.number_input("Debt-to-Income Ratio", value=0.62)
-        credit_score = st.number_input("Credit Score", value=590)
-        num_previous_loans = st.number_input("Number of Previous Loans", value=1)
-        missed_payments_count = st.number_input("Missed Payments Count", value=3)
-        online_presence_score2 = st.number_input("Online Presence Score", value=40.0, key="ops2")
-        customer_satisfaction_score2 = st.number_input(
-            "Customer Satisfaction Score", value=3.4, key="css2")
-        competitor_density2 = st.number_input("Competitor Density", value=6, key="cd2")
-        submitted2 = st.form_submit_button("Predict Credit Risk")
+with tab_clf:
+    c1, c2 = st.columns(2)
+    with c1:
+        sector = select("Sector", SECTORS, "Retail", "clf_sector")
+        county = select("County", COUNTIES, "Nairobi", "clf_county")
+        quarter = select("Quarter", QUARTERS, "Q2", "clf_quarter")
+        purpose = select("Loan Purpose", LOAN_PURPOSES, "Working Capital", "clf_purpose")
+        education = select("Owner Education Level", EDUCATION, "Secondary", "clf_edu")
+        age = num("Business Age (years)", 2.1, "clf_age")
+        employees = num("Number of Employees", 4, "clf_emp", step=1)
+        revenue = num("Monthly Revenue (KES)", 850000.0, "clf_rev")
+        loan_amt = num("Loan Amount (KES)", 150000.0, "clf_amt")
+        term = num("Loan Term (months)", 12, "clf_term", step=1)
+    with c2:
+        interest = num("Interest Rate (%)", 16.5, "clf_int")
+        collateral = num("Collateral Value (0 if unsecured)", 0.0, "clf_coll")
+        dti = num("Debt-to-Income Ratio", 0.62, "clf_dti")
+        credit = num("Credit Score", 590, "clf_credit", step=1)
+        prev = num("Number of Previous Loans", 1, "clf_prev", step=1)
+        missed = num("Missed Payments Count", 3, "clf_missed", step=1)
+        online = num("Online Presence Score", 40.0, "clf_online")
+        satisfaction = num("Customer Satisfaction Score", 3.4, "clf_sat")
+        competitors = num("Competitor Density", 6, "clf_comp", step=1)
 
-    if submitted2:
-        payload = {
-            "sector": sector2, "county": county2, "quarter": quarter2,
-             "loan_purpose": loan_purpose,
-            "owner_education_level": EDUCATION_TO_MODEL[owner_education_level2],
-            "business_age_years": business_age_years2, "num_employees": num_employees2,
-            "monthly_revenue_kes": monthly_revenue_kes, "loan_amount_kes": loan_amount_kes2,
-            "loan_term_months": loan_term_months, "interest_rate_pct": interest_rate_pct2,
-            "collateral_value_kes": collateral_value_kes or None,
-            "debt_to_income_ratio": debt_to_income_ratio, "credit_score": credit_score,
-            "num_previous_loans": num_previous_loans,
-            "missed_payments_count": missed_payments_count,
-            "online_presence_score": online_presence_score2,
-            "customer_satisfaction_score": customer_satisfaction_score2,
-            "competitor_density": competitor_density2,
-        }
-        input_row = pd.DataFrame([payload])
-        predicted_class = classification_pipeline.predict(input_row)[0]
-        predicted_probabilities = classification_pipeline.predict_proba(input_row)[0]
-        class_labels = classification_pipeline.named_steps["model"].classes_
-        st.success(f"Predicted credit risk category: {predicted_class}")
-        st.write({str(label): round(float(prob), 4)
-                  for label, prob in zip(class_labels, predicted_probabilities)})
-
-# -----------------------------------------------------------------------
-# 3. Clustering
-# -----------------------------------------------------------------------
-with tab_clustering:
-    with st.form("clustering_form"):
-        age = st.number_input("Age", min_value=1, max_value=100, value=27)
-        annual_income_k = st.number_input("Annual Income (k$)", min_value=0.0, value=45.0)
-        spending_score = st.number_input("Spending Score (1-100)", min_value=1, max_value=100, value=72)
-        submitted3 = st.form_submit_button("Predict Segment")
-
-    if submitted3:
-        input_row = pd.DataFrame([{
-            "Age": age,
-            "Annual Income (k$)": annual_income_k,
-            "Spending Score (1-100)": spending_score,
-        }])
-        scaled_input = clustering_scaler.transform(input_row)
-        cluster = int(clustering_kmeans.predict(scaled_input)[0])
-        st.success(f"Assigned segment: Cluster {cluster}")
+    if st.button("Predict credit risk", key="clf_btn", type="primary"):
+        try:
+            row = pd.DataFrame([{
+                "sector": sector,
+                "county": county,
+                "quarter": quarter,
+                "loan_purpose": purpose,
+                "owner_education_level": education,
+                "business_age_years": age,
+                "num_employees": employees,
+                "monthly_revenue_kes": revenue,
+                "loan_amount_kes": loan_amt,
+                "loan_term_months": term,
+                "interest_rate_pct": interest,
+                # 0 means unsecured loan (no collateral)
+                "collateral_value_kes": collateral if collateral else np.nan,
+                "debt_to_income_ratio": dti,
+                "credit_score": credit,
+                "num_previous_loans": prev,
+                "missed_payments_count": missed,
+                "online_presence_score": online,
+                "customer_satisfaction_score": satisfaction,
+                "competitor_density": competitors,
+            }])
+            label = M["clf"].predict(row)[0]
+            probs = M["clf"].predict_proba(row)[0]
+            classes = M["clf"].named_steps["model"].classes_
+            st.success(f"Predicted category: {label}")
+            prob_df = pd.DataFrame({
+                "Category": [str(c) for c in classes],
+                "Probability": [f"{p:.1%}" for p in probs],
+            })
+            st.dataframe(prob_df, hide_index=True)
+            st.bar_chart(pd.Series(probs, index=[str(c) for c in classes]))
+        except Exception as e:
+            st.error(f"Inference error: {e}")
 
 # -----------------------------------------------------------------------
-# 4. Association Rule Mining
+# 3. Clustering: mall customer segment
 # -----------------------------------------------------------------------
-with tab_arm:
-    with st.form("arm_form"):
-        cart_text = st.text_input("Cart (comma-separated SKUs)", "H06, H07")
-        top_n = st.number_input("Top N Recommendations", min_value=1, value=3)
-        submitted4 = st.form_submit_button("Get Recommendations")
+with tab_clu:
+    age = num("Age", 27, "clu_age", step=1)
+    income = num("Annual Income (k$)", 45, "clu_income", step=1)
+    score = num("Spending Score (1-100)", 72, "clu_score", step=1)
 
-    if submitted4:
-        cart = {sku.strip() for sku in cart_text.split(",") if sku.strip()}
-        candidates = {}
-        for antecedent, consequent_list in recommendation_lookup.items():
-            if antecedent.issubset(cart):
-                for sku, confidence, lift in consequent_list:
-                    if sku not in cart:
-                        if sku not in candidates or confidence > candidates[sku][0]:
-                            candidates[sku] = (confidence, lift)
+    if st.button("Find segment", key="clu_btn", type="primary"):
+        try:
+            row = pd.DataFrame([{
+                "Age": age,
+                "Annual Income (k$)": income,
+                "Spending Score (1-100)": score,
+            }])
+            cluster = int(M["kmeans"].predict(M["scaler"].transform(row))[0])
+            st.success(f"Assigned segment: Cluster {cluster}")
+        except Exception as e:
+            st.error(f"Inference error: {e}")
 
-        ranked = sorted(candidates.items(), key=lambda item: item[1][0], reverse=True)[:int(top_n)]
-        if not ranked:
-            st.warning("No recommendations for this cart -- try a SKU combination seen in the training orders.")
+# -----------------------------------------------------------------------
+# 4. Association rules: product recommender
+# -----------------------------------------------------------------------
+with tab_rec:
+    sku_lookup = M["sku"]
+    cart = st.multiselect(
+        "Cart (select SKUs)",
+        options=list(sku_lookup.index),
+        default=[s for s in ("E02", "O01") if s in sku_lookup.index],
+        format_func=lambda s: f"{sku_lookup.loc[s, 'product_name']} ({s})",
+        key="rec_cart",
+    )
+    top_n = st.slider("Top N Recommendations", 1, 10, 3, key="rec_topn")
+
+    if st.button("Recommend", key="rec_btn", type="primary"):
+        cart_set = set(cart)
+        if not cart_set:
+            st.error("Select at least one SKU.")
         else:
-            for sku, (confidence, lift) in ranked:
-                st.write(f"**{sku_lookup.loc[sku, 'product_name']}** ({sku}) "
-                         f"-- confidence {confidence:.1%}, lift {lift:.2f}")
+            try:
+                candidates = {}
+                for antecedent, consequents in M["reco"].items():
+                    if antecedent.issubset(cart_set):
+                        for sku, confidence, lift in consequents:
+                            if sku not in cart_set:
+                                if sku not in candidates or confidence > candidates[sku][0]:
+                                    candidates[sku] = (confidence, lift)
+                ranked = sorted(candidates.items(), key=lambda kv: kv[1][0], reverse=True)[:top_n]
+                if not ranked:
+                    st.info("No recommendations for this cart. Try a different SKU combination.")
+                else:
+                    st.dataframe(
+                        pd.DataFrame([{
+                            "sku": str(sku),
+                            "product_name": sku_lookup.loc[sku, "product_name"],
+                            "confidence": round(float(conf), 3),
+                            "lift": round(float(lift), 2),
+                        } for sku, (conf, lift) in ranked]),
+                        hide_index=True,
+                    )
+            except Exception as e:
+                st.error(f"Inference error: {e}")
