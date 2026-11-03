@@ -71,6 +71,12 @@
   }
   ul.recs li:last-child { border-bottom: none; }
   ul.recs .meta { color: var(--muted); font-size: 12px; }
+
+  /* --- client-side validation styles --- */
+  .invalid { border-color: #b91c1c !important; }
+  .field-error { color: #b91c1c; font-size: 12px; margin-top: 4px; }
+  #errorBanner { display: none; background: #fef2f2; color: #b91c1c; padding: 10px 14px; border-radius: 10px; margin-top: 16px; font-size: 14px; }
+  #errorBanner.show { display: block; }
 </style>
 </head>
 <body>
@@ -80,25 +86,28 @@
     <h1>Shopping Cart Recommender</h1>
     <p class="lead">Calls <code>POST /api/v1/models/ecommerce-recommender/predictions</code></p>
 
-    <form id="predictForm">
+    <form id="predictForm" novalidate>
       <label for="cart">Cart SKUs <span class="hint">(comma-separated, e.g. P01, P04 or H06, H07)</span></label>
       <input type="text" id="cart" value="P01, P04" required>
 
       <label for="top_n">Number of Recommendations</label>
       <input type="number" id="top_n" value="3" min="1" max="10" required>
 
+      <div id="errorBanner"></div>
       <button type="submit" id="submitBtn">Get Recommendations</button>
     </form>
 
     <div id="result"></div>
   </div>
 
+<script src="config.js"></script>
+<script src="validation.js"></script>
 <script>
   const protocol = window.location.protocol;                 // "http:", "https:", or "file:"
   const hostname = window.location.hostname || "127.0.0.1";  // hostname is "" for a file:// page
   const isSecure = protocol === "https:";
 
-  const API_ORIGIN = `${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`;
+  const API_ORIGIN = FormValidation.apiOrigin(`${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`);
   const API_URL = `${API_ORIGIN}/api/v1/models/ecommerce-recommender/predictions`;
 
   // const API_URL = "http://127.0.0.1:5000/api/v1/models/ecommerce-recommender/predictions";
@@ -108,15 +117,17 @@
     const submitBtn = document.getElementById("submitBtn");
     const result = document.getElementById("result");
 
-    const cartSkus = document.getElementById("cart").value
-      .split(",")
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-
-    const payload = {
-      cart: cartSkus,
-      top_n: parseInt(document.getElementById("top_n").value),
-    };
+    const v = FormValidation.validateForm(e.target, {
+      cart: { label: "Cart", type: "text" },
+      top_n: { label: "Number of recommendations", type: "int", min: 1, max: 10 },
+    });
+    if (!v) return;          // errors are showing, so nothing is sent
+    const cartSkus = v.cart.split(",").map(s => s.trim()).filter(s => s.length > 0);
+    if (cartSkus.length === 0) {
+      FormValidation.showError(document.getElementById("cart"), "Enter at least one product code, e.g. P01, P04.");
+      return;
+    }
+    const payload = { cart: cartSkus, top_n: v.top_n };
 
     submitBtn.disabled = true;
     submitBtn.textContent = "Fetching...";
@@ -127,10 +138,14 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(90000),
       });
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Server responded ${response.status}: ${text.slice(0, 200)}`);
+        let detail = "";
+        try { detail = (await response.json()).error || ""; } catch (_) {}
+        throw new Error(detail
+          ? `Server rejected the request (${response.status}): ${detail}`
+          : `Server responded with status ${response.status}`);
       }
       const data = await response.json();
 
@@ -148,8 +163,7 @@
       }
     } catch (err) {
       result.className = "show err";
-      result.textContent = "Request failed: " + err.message +
-        " (is api.py running on http://127.0.0.1:5000 ?)";
+      result.textContent = FormValidation.describeError(err);
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Get Recommendations";

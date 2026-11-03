@@ -69,6 +69,12 @@
   .prob-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; }
   .prob-bar .track { flex: 1; height: 6px; background: #d1f5fb; border-radius: 3px; overflow: hidden; }
   .prob-bar .fill { height: 100%; background: var(--accent); }
+
+  /* --- client-side validation styles --- */
+  .invalid { border-color: #b91c1c !important; }
+  .field-error { color: #b91c1c; font-size: 12px; margin-top: 4px; }
+  #errorBanner { display: none; background: #fef2f2; color: #b91c1c; padding: 10px 14px; border-radius: 10px; margin-top: 16px; font-size: 14px; }
+  #errorBanner.show { display: block; }
 </style>
 </head>
 <body>
@@ -78,7 +84,7 @@
     <h1>SME Credit Risk Classifier</h1>
     <p class="lead">Calls <code>POST /api/v1/models/sme-credit-risk-classifier/predictions</code></p>
 
-    <form id="predictForm">
+    <form id="predictForm" novalidate>
       <div class="row">
         <div>
           <label for="sector">Sector</label>
@@ -202,18 +208,21 @@
       <label for="competitor_density">Competitor Density</label>
       <input type="number" id="competitor_density" value="6" required>
 
+      <div id="errorBanner"></div>
       <button type="submit" id="submitBtn">Predict Credit Risk</button>
     </form>
 
     <div id="result"></div>
   </div>
 
+<script src="config.js"></script>
+<script src="validation.js"></script>
 <script>
   const protocol = window.location.protocol;                 // "http:", "https:", or "file:"
   const hostname = window.location.hostname || "127.0.0.1";  // hostname is "" for a file:// page
   const isSecure = protocol === "https:";
 
-  const API_ORIGIN = `${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`;
+  const API_ORIGIN = FormValidation.apiOrigin(`${isSecure ? "https" : "http"}://${hostname}:${isSecure ? "443" : "5000"}`);
   const API_URL = `${API_ORIGIN}/api/v1/models/sme-credit-risk-classifier/predictions`;
 
   // const API_URL = "http://127.0.0.1:5000/api/v1/models/sme-credit-risk-classifier/predictions";
@@ -223,32 +232,30 @@
     const submitBtn = document.getElementById("submitBtn");
     const result = document.getElementById("result");
 
-    // A blank collateral field means "unsecured loan" -- send null, not an
-    // empty string, exactly what the pipeline's imputer + missingness
-    // indicator already expects.
-    const collateral = document.getElementById("collateral_value_kes").value;
-
-    const payload = {
-      sector: document.getElementById("sector").value,
-      county: document.getElementById("county").value,
-      quarter: document.getElementById("quarter").value,
-      loan_purpose: document.getElementById("loan_purpose").value,
-      owner_education_level: document.getElementById("owner_education_level").value,
-      business_age_years: parseFloat(document.getElementById("business_age_years").value),
-      num_employees: parseInt(document.getElementById("num_employees").value),
-      monthly_revenue_kes: parseFloat(document.getElementById("monthly_revenue_kes").value),
-      loan_amount_kes: parseFloat(document.getElementById("loan_amount_kes").value),
-      loan_term_months: parseInt(document.getElementById("loan_term_months").value),
-      interest_rate_pct: parseFloat(document.getElementById("interest_rate_pct").value),
-      collateral_value_kes: collateral === "" ? null : parseFloat(collateral),
-      debt_to_income_ratio: parseFloat(document.getElementById("debt_to_income_ratio").value),
-      credit_score: parseFloat(document.getElementById("credit_score").value),
-      num_previous_loans: parseInt(document.getElementById("num_previous_loans").value),
-      missed_payments_count: parseInt(document.getElementById("missed_payments_count").value),
-      online_presence_score: parseFloat(document.getElementById("online_presence_score").value),
-      customer_satisfaction_score: parseFloat(document.getElementById("customer_satisfaction_score").value),
-      competitor_density: parseInt(document.getElementById("competitor_density").value),
-    };
+    const v = FormValidation.validateForm(e.target, {
+      sector: { label: "Sector", type: "select" },
+      county: { label: "County", type: "select" },
+      quarter: { label: "Quarter", type: "select" },
+      loan_purpose: { label: "Loan purpose", type: "select" },
+      owner_education_level: { label: "Owner education", type: "select" },
+      business_age_years: { label: "Business age", type: "float", min: 0, max: 100 },
+      num_employees: { label: "Number of employees", type: "int", min: 0 },
+      monthly_revenue_kes: { label: "Monthly revenue", type: "float", min: 0 },
+      loan_amount_kes: { label: "Loan amount", type: "float", min: 0 },
+      loan_term_months: { label: "Loan term (months)", type: "int", min: 1, max: 120 },
+      interest_rate_pct: { label: "Interest rate", type: "float", min: 0, max: 100 },
+      collateral_value_kes: { label: "Collateral value", type: "float", min: 0, required: false },
+      debt_to_income_ratio: { label: "Debt-to-income ratio", type: "float", min: 0 },
+      credit_score: { label: "Credit score", type: "float", min: 300, max: 850 },
+      num_previous_loans: { label: "Previous loans", type: "int", min: 0 },
+      missed_payments_count: { label: "Missed payments", type: "int", min: 0 },
+      online_presence_score: { label: "Online presence score", type: "float", min: 0, max: 100 },
+      customer_satisfaction_score: { label: "Satisfaction score", type: "float", min: 1, max: 5 },
+      competitor_density: { label: "Competitor density", type: "int", min: 0 },
+    });
+    if (!v) return;          // errors are showing, so nothing is sent
+    // Blank collateral becomes null (unsecured loan)
+    const payload = v;
 
     submitBtn.disabled = true;
     submitBtn.textContent = "Predicting...";
@@ -259,10 +266,14 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(90000),
       });
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Server responded ${response.status}: ${text.slice(0, 200)}`);
+        let detail = "";
+        try { detail = (await response.json()).error || ""; } catch (_) {}
+        throw new Error(detail
+          ? `Server rejected the request (${response.status}): ${detail}`
+          : `Server responded with status ${response.status}`);
       }
       const data = await response.json();
 
@@ -282,8 +293,7 @@
         probRows;
     } catch (err) {
       result.className = "show err";
-      result.textContent = "Request failed: " + err.message +
-        " (is api.py running on http://127.0.0.1:5000 ?)";
+      result.textContent = FormValidation.describeError(err);
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Predict Credit Risk";
