@@ -30,11 +30,11 @@
 
 **Member 4:**
 
-| **Details**                                                                                                                           | **Comment** |
-|:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Details**                                                                                                                           | **Comment**         |
+|:--------------------------------------------------------------------------------------------------------------------------------------|:--------------------|
+| **Student ID**                                                                                                                        | 168871              |
+| **Name**                                                                                                                              | joshua were owuonda |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |     **Branch:** [feature/huggingface-streamlit-spaces](https://github.com/BI-course/smm-202604-D6/tree/feature/huggingface-streamlit-spaces)<br/><br/>**Contribution:** Built a multi-tab Gradio app (`huggingface-spaces-using-gradio/app.py`) and a multi-tab Streamlit app (`streamlit-sharing-using-streamlit/app.py`), one tab per model (regression, classification, clustering, recommender), loading the same four artifacts from `model/`. Deployed the Streamlit app on Streamlit Community Cloud. Verified that Gradio, Streamlit, the local API and the Render API return identical outputs for the same inputs. The Gradio app was tested locally but not published, because Hugging Face marked the Gradio SDK as paid for our account (under 30 days old); on the lecturer's advice we used Streamlit.<br/><br/>**What I learned:** Pickled models only load reliably when library versions match training, so I pinned scikit-learn and joblib. Dropdown values must match the exact categories the encoders were fitted on, and missing values must be passed as NaN rather than 0 so the apps and the API agree. Free hosting tiers change their rules, so platform limits should be checked early.                  |
 
 **Member 5:**
 
@@ -71,8 +71,8 @@ Fill in only the rows that apply to your chosen difficulty level (see Part C bel
 | **Deployment target**                             | **URL** |
 |:--------------------------------------------------|:--------|
 | Render (the full `api.py`, all endpoints)         |         |
-| Hugging Face Space (Gradio, one tab per model)    |         |
-| Streamlit Community Cloud app (one tab per model) |         |
+| Hugging Face Space (Gradio, one tab per model)    | Not deployed: Gradio SDK is paid-only on our account (see Member 4 comment). Gradio app is in the repo and tested locally.        |
+| Streamlit Community Cloud app (one tab per model) |   https://smm-202604-d6-9csuz2jpvxgchqmdfa4euj.streamlit.app/      |
 
 ---
 
